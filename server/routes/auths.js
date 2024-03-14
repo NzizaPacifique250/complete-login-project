@@ -1,37 +1,72 @@
-// Imports packages 
-// Note: To import packages we define a variable and add require('<name_of_package>')
-const express = require('express');
+// Imports packages
+const express = require("express");
+const User = require("../modules/user");
+const bcryptjs = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const auth = require("../middlewares/auth");
 
 // Variable initialization
 const authRouter = express.Router();
+authRouter.get("/", (req, res) => {
+  res.send("Welcome to our first page");
+}),
+  authRouter.post("/signup", async (req, res) => {
+    try {
+      const { name, email, password } = req.body;
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ msg: "This email has been used" });
+      }
+      const hashedPassword = await bcryptjs.hash(password, 8);
 
-// Creates routes
+      let newUser = new User({ name, email, password: hashedPassword });
 
-// The following shows how to get data from the  database using the 'get' method in Express.
+      newUser = await newUser.save();
+      res.json(newUser);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
- /* 
-    authRouter.get( '/', (req, res) => {
-        res.send('Welcome to our first page made in nodejs')]
-        }); 
-*/
+authRouter.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ msg: "The user does not exist!" });
+    }
 
-// How to post data to the database and send response message to the client
+    const passMatch = await bcryptjs.compare(password, user.password);
 
-authRouter.post( '/signup', (req,res)=>{
-    // This is how to make be know the expected  datatype for req.body
-    const {email,password}= req.body;
+    if (!passMatch) {
+      return res.status(400).json({ msg: "Invalid Password" });
+    }
+    const token = jwt.sign({ id: user._id }, "passwordKey");
+    res.json({ token, ...user._doc });
+  } catch (e) {
+    res.status(500).json({ msg: e.message });
+  }
+});
 
-/*
-    const username = req.body.username;
-    if(username === "admin"){
-      return res.json({success : true, message:"You are logged in"});}
-})
-            .then((response)=>{})   // What happens when request is successful
-            .catch((error)=>{});         // What happens if there is an error with the request
+authRouter.post("/valid-token", async (req, res) => {
+  try {
+    const token = req.header("x-auth-token");
+    if (!token) return res.json(false);
 
-*/
+    const verified = jwt.verify(token, "passwordKey");
+    if (!verified) return res.json(false);
 
+    const user = await User.findById(verified.id);
+    if (!user) return res.json(false);
+    return res.json(true);
+  } catch (e) {
+    res.status(500).json({ msg: e.message });
+  }
+});
+// Get user data api
 
-// Note: Variable declared in their own file are considered to be private to make
-// them accissible into the whole application you will need to export them using [module.exports]
+authRouter.get("/", auth, async (req, res) => {
+  const user = await User.findById(req.user);
+  res.json({ ...user._doc, token: req.token });
+});
 module.exports = authRouter;
